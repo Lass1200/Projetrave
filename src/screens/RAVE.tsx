@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { ActivityIndicator, Alert, Button, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
+import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native'
 import { Audio } from 'expo-av'
 import * as DocumentPicker from 'expo-document-picker'
 import { useSelector } from 'react-redux'
 import { RootState } from '../store/store'
 import * as FileSystem from 'expo-file-system/legacy'
+import { Ionicons } from '@expo/vector-icons'
 
 const TABS = ['Défaut', 'Mes clips', 'Téléphone']
 
@@ -26,11 +27,12 @@ export default function RAVE() {
         if (!result.canceled) setSelectedUri(result.assets[0].uri)
     }
 
+    // Récupère la liste des modèles disponibles depuis le serveur
     const fetchModels = async () => {
         try {
             const res = await fetch(`${serverUrl}/getmodels`)
             const data = await res.json()
-            setModels(data.models)  // ← .models ici
+            setModels(data.models)
         } catch {
             Alert.alert('Erreur', 'Impossible de récupérer les modèles')
         }
@@ -41,31 +43,28 @@ export default function RAVE() {
         setSelectedModel(model)
     }
 
+    // Envoie le clip au serveur et télécharge le résultat transformé
     const sendAndTransform = async () => {
         if (!selectedUri) return Alert.alert('Erreur', 'Sélectionne un clip')
         if (!isConnected) return Alert.alert('Erreur', 'Non connecté au serveur')
         setLoading(true)
         try {
-            const uploadRes = await FileSystem.uploadAsync(`${serverUrl}/upload`, selectedUri, {
+            await FileSystem.uploadAsync(`${serverUrl}/upload`, selectedUri, {
                 fieldName: 'file',
                 httpMethod: 'POST',
                 uploadType: FileSystem.FileSystemUploadType.MULTIPART,
             })
-            console.log('upload result:', uploadRes.status, uploadRes.body)
-
             const dest = FileSystem.documentDirectory + 'transformed.wav'
-            const dlRes = await FileSystem.downloadAsync(`${serverUrl}/download`, dest)
-            console.log('download result:', dlRes.status)
-
+            await FileSystem.downloadAsync(`${serverUrl}/download`, dest)
             setTransformedUri(dest)
             Alert.alert('Transformation terminée !')
         } catch (e) {
-            console.log('erreur détaillée:', e)
             Alert.alert('Erreur', String(e))
         } finally {
             setLoading(false)
         }
     }
+
     const playAudio = async (uri: string) => {
         const { sound } = await Audio.Sound.createAsync({ uri })
         await sound.playAsync()
@@ -75,7 +74,7 @@ export default function RAVE() {
         <View style={styles.container}>
             <Text style={styles.title}>RAVE</Text>
 
-            {/* Tabs */}
+            {/* Tabs sélection source audio */}
             <View style={styles.tabs}>
                 {TABS.map((tab, i) => (
                     <TouchableOpacity
@@ -88,34 +87,60 @@ export default function RAVE() {
                 ))}
             </View>
 
-            {/* Contenu tab */}
+            {/* Contenu selon le tab actif */}
             {activeTab === 0 && (
-                <Text style={{ textAlign: 'center', color: '#999' }}>
-                    Ajoute un fichier audio.wav dans le dossier assets/ et nomme le "default.wav"
+                <Text style={{ textAlign: 'center', color: '#999', marginVertical: 10 }}>
+                    Ajoute un fichier default.wav dans assets/
                 </Text>
             )}
             {activeTab === 1 && (
                 <FlatList
                     data={clips}
                     keyExtractor={item => item.id}
+                    style={{ maxHeight: 150 }}
+                    ListEmptyComponent={
+                        <Text style={{ textAlign: 'center', color: '#999' }}>Aucun clip enregistré</Text>
+                    }
                     renderItem={({ item }) => (
                         <TouchableOpacity
-                            style={[styles.clipItem, selectedUri === item.uri && styles.selected]}
+                            style={[styles.clipItem, selectedUri === item.uri && styles.selectedClip]}
                             onPress={() => setSelectedUri(item.uri)}
                         >
-                            <Text>{item.name}</Text>
+                            <Ionicons name="musical-note-outline" size={18} color="#555" />
+                            <Text style={{ flex: 1 }}>{item.name}</Text>
+                            {selectedUri === item.uri && (
+                                <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
+                            )}
                         </TouchableOpacity>
                     )}
                 />
             )}
             {activeTab === 2 && (
-                <Button title="Choisir un fichier" onPress={pickFromPhone} />
+                <TouchableOpacity
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 }}
+                    onPress={pickFromPhone}
+                >
+                    <Ionicons name="folder-open-outline" size={20} color="#000" />
+                    <Text style={{ fontSize: 16 }}>Choisir un fichier</Text>
+                </TouchableOpacity>
             )}
 
-            {selectedUri && <Text style={styles.selected_text}> Clip sélectionné</Text>}
+            {selectedUri && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginVertical: 8 }}>
+                    <Ionicons name="checkmark-circle" size={18} color="#4CAF50" />
+                    <Text style={{ color: '#4CAF50' }}>Clip sélectionné</Text>
+                </View>
+            )}
 
-            {/* Modèles */}
-            <Button title="Charger les modèles" onPress={fetchModels} />
+            {/* Chargement et sélection des modèles */}
+            <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12 }}
+                onPress={fetchModels}
+            >
+                <Ionicons name="cloud-download-outline" size={20} color="#000" />
+                <Text style={{ fontSize: 16 }}>Charger les modèles</Text>
+            </TouchableOpacity>
+
             <View style={styles.models}>
                 {models.map(m => (
                     <TouchableOpacity
@@ -123,24 +148,42 @@ export default function RAVE() {
                         style={[styles.modelBtn, selectedModel === m && styles.selectedModel]}
                         onPress={() => selectModel(m)}
                     >
-                        <Text>{m}</Text>
+                        <Text style={{ color: selectedModel === m ? '#fff' : '#000' }}>
+                            {m.replace('.onnx', '')}
+                        </Text>
                     </TouchableOpacity>
                 ))}
             </View>
 
-            {/* Envoyer */}
-            {loading
-                ? <ActivityIndicator size="large" />
-                : <Button title=" Envoyer au serveur" onPress={sendAndTransform} />
-            }
+            {/* Bouton envoi au serveur */}
+            {loading ? (
+                <ActivityIndicator size="large" style={{ marginTop: 10 }} />
+            ) : (
+                <TouchableOpacity style={styles.sendBtn} onPress={sendAndTransform}>
+                    <Ionicons name="send-outline" size={20} color="white" />
+                    <Text style={styles.sendBtnText}>Envoyer au serveur</Text>
+                </TouchableOpacity>
+            )}
 
-            {/* Lecture */}
+            {/* Boutons lecture original et transformé */}
             <View style={styles.playButtons}>
                 {selectedUri && (
-                    <Button title="▶ Original" onPress={() => playAudio(selectedUri)} />
+                    <TouchableOpacity
+                        style={{ alignItems: 'center', gap: 4 }}
+                        onPress={() => playAudio(selectedUri)}
+                    >
+                        <Ionicons name="play-circle-outline" size={28} color="#000" />
+                        <Text style={{ fontSize: 14 }}>Original</Text>
+                    </TouchableOpacity>
                 )}
                 {transformedUri && (
-                    <Button title="🎵 Transformé" onPress={() => playAudio(transformedUri)} />
+                    <TouchableOpacity
+                        style={{ alignItems: 'center', gap: 4 }}
+                        onPress={() => playAudio(transformedUri)}
+                    >
+                        <Ionicons name="musical-notes-outline" size={28} color="#4CAF50" />
+                        <Text style={{ fontSize: 14, color: '#4CAF50' }}>Transformé</Text>
+                    </TouchableOpacity>
                 )}
             </View>
         </View>
@@ -148,18 +191,19 @@ export default function RAVE() {
 }
 
 const styles = StyleSheet.create({
-    container: { flex: 1, padding: 20 },
+    container: { flex: 1, padding: 20, backgroundColor: '#fff' },
     title: { fontSize: 24, fontWeight: 'bold', marginBottom: 20, textAlign: 'center' },
-    tabs: { flexDirection: 'row', marginBottom: 20 },
+    tabs: { flexDirection: 'row', marginBottom: 15 },
     tab: { flex: 1, padding: 10, alignItems: 'center', borderBottomWidth: 2, borderColor: '#ccc' },
     activeTab: { borderColor: '#000' },
     tabText: { color: '#999' },
-    activeTabText: { fontWeight: 'bold', color: '#000' },
-    clipItem: { padding: 15, borderBottomWidth: 1, borderColor: '#eee' },
-    selected: { backgroundColor: '#e0f0ff' },
-    selected_text: { textAlign: 'center', marginVertical: 10, color: 'green' },
-    models: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginVertical: 15 },
-    modelBtn: { padding: 10, borderRadius: 8, borderWidth: 1, borderColor: '#ccc' },
-    selectedModel: { backgroundColor: '#000', borderColor: '#000' },
-    playButtons: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 20 }
+    activeTabText: { fontWeight: 'bold' },
+    clipItem: { flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderColor: '#eee', gap: 10 },
+    selectedClip: { backgroundColor: '#e0f0ff' },
+    models: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginVertical: 10 },
+    modelBtn: { paddingVertical: 8, paddingHorizontal: 14, borderRadius: 20, borderWidth: 1, borderColor: '#ccc' },
+    selectedModel: { backgroundColor: '#000' },
+    sendBtn: { flexDirection: 'row', backgroundColor: '#000', padding: 15, borderRadius: 10, alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 10 },
+    sendBtnText: { color: 'white', fontWeight: 'bold' },
+    playButtons: { flexDirection: 'row', justifyContent: 'space-around', marginTop: 20 },
 })
